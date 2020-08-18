@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"fmt"
 	"log"
 	"regexp"
@@ -65,7 +66,7 @@ func sendMessage(message string)(string, error) {
 
 func translateText(message string, sourceLanguageCode string, targetLanguageCode string)(string, error) {
 	svc := translate.New(session.New(), &aws.Config{
-		Region: aws.String("ap-northeast-1"),
+		Region: aws.String(os.Getenv("REGION")),
 	})
 	params := &translate.TextInput{
 		Text: aws.String(message),
