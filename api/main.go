@@ -7,11 +7,12 @@ import (
 	"regexp"
 	"context"
 	"encoding/json"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/translate"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/service/translate"
 )
 
 type APIResponse struct {
@@ -20,7 +21,9 @@ type APIResponse struct {
 
 type Response events.APIGatewayProxyResponse
 
-const layout              string = "2006-01-02 15:04"
+var cfg aws.Config
+var translateClient *translate.Client
+
 const languageCodeJa      string = "ja"
 const languageCodeEn      string = "en"
 
@@ -33,7 +36,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		switch v {
 		case "sendmessage" :
 			if m, ok := d["message"]; ok {
-				res, e := sendMessage(m)
+				res, e := sendMessage(ctx, m)
 				if e != nil {
 					err = e
 				} else {
@@ -57,28 +60,38 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	}, nil
 }
 
-func sendMessage(message string)(string, error) {
+func sendMessage(ctx context.Context, message string)(string, error) {
 	if regexp.MustCompile(`[a-zA-Z]`).Match([]byte(message)) {
-		return translateText(message, languageCodeEn, languageCodeJa)
+		return translateText(ctx, message, languageCodeEn, languageCodeJa)
 	}
-	return translateText(message, languageCodeJa, languageCodeEn)
+	return translateText(ctx, message, languageCodeJa, languageCodeEn)
 }
 
-func translateText(message string, sourceLanguageCode string, targetLanguageCode string)(string, error) {
-	svc := translate.New(session.New(), &aws.Config{
-		Region: aws.String(os.Getenv("REGION")),
-	})
-	params := &translate.TextInput{
+func translateText(ctx context.Context, message string, sourceLanguageCode string, targetLanguageCode string)(string, error) {
+	if translateClient == nil {
+		translateClient = translate.New(cfg)
+	}
+	params := &translate.TranslateTextInput{
 		Text: aws.String(message),
 		SourceLanguageCode: aws.String(sourceLanguageCode),
 		TargetLanguageCode: aws.String(targetLanguageCode),
 	}
-	res, err := svc.Text(params)
+	req := translateClient.TranslateTextRequest(params)
+	res, err := req.Send(ctx)
 	if err != nil {
 		log.Print(err)
 		return "", err
 	}
-	return aws.StringValue(res.TranslatedText), nil
+	return aws.StringValue(res.TranslateTextOutput.TranslatedText), nil
+}
+
+func init() {
+	var err error
+	cfg, err = external.LoadDefaultAWSConfig()
+	cfg.Region = os.Getenv("REGION")
+	if err != nil {
+		log.Print(err)
+	}
 }
 
 func main() {
